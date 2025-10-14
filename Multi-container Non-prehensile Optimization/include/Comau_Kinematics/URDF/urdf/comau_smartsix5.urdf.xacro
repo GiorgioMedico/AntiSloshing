@@ -1,0 +1,326 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="comau_smartsix5">
+  <xacro:property name="package_name" value="smart5_viewer"/>
+
+  <xacro:include filename="materials.xacro" />
+  <xacro:include filename="comau_smartsix5.trans" />
+  <xacro:include filename="comau_smartsix5.gazebo" />
+
+
+  <xacro:property name="r2d" value="${pi/180}"/>
+  
+  <link name="world"></link>
+
+  <link name="base_comau">
+    <inertial>
+      <origin xyz="-0.10060 0.00262 0.08516" rpy="0 0 0" />
+      <mass value="125.01405"/>
+      <inertia
+        ixx="0.81984" ixy="-0.08140" ixz="-0.08589"
+        iyy="2.56616" iyz="0.00694"
+        izz="2.84953"/>
+    </inertial>
+  	<visual>
+	  <origin xyz="0 0 0" rpy="0 0 0" />
+  	  <geometry>
+  		<mesh
+			filename="../meshes/dae/base.dae"
+			scale="0.001 0.001 0.001"
+  			/>
+  	  </geometry>
+	  
+  	  <material name="silver"/>
+  	</visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh
+        filename="../meshes/dae/base.dae"
+        scale="0.001 0.001 0.001"
+          />
+      </geometry>
+    </collision>
+  </link>
+
+  <link name="axes_1">
+    <inertial>
+      <origin xyz="0.03242 0.01778 0.12409" rpy="0 0 0" />
+    <mass value="61.340186"/>
+      <inertia
+        ixx="7.439629" ixy="1.308878" ixz="-0.207593"
+        iyy="1.34393" iyz="0.801292"
+        izz="7.58969" />
+    </inertial>
+
+    <visual>
+      <geometry>
+      <mesh
+        filename="../meshes/dae/axes_1.dae"
+        scale="0.001 0.001 0.001"
+        />
+      </geometry>
+      
+      <material name="silver"/>
+    </visual>
+
+		<collision>
+		<origin xyz="0 0 0" rpy="0 0 0" />
+		<geometry>
+			<mesh
+				filename="../meshes/dae/axes_1.dae"
+				scale="0.001 0.001 0.001"
+				/>
+		</geometry>
+		</collision>
+  </link>
+
+  <link name="axes_2">
+		<inertial>
+		<origin xyz="-0.00776 0.01741 0.18315" rpy="0 0 0" />
+		<mass value="27.961877"/>
+		<inertia
+			ixx="0.647025" ixy="0.072866" ixz="0.849004"
+			iyy="2.614907" iyz="-0.047671"
+			izz="2.081713" />
+		</inertial>
+
+		<visual>
+		
+		<geometry>
+			<mesh 
+				filename="../meshes/dae/axes_2.dae"
+				scale="0.001 0.001 0.001"
+				/>
+		</geometry>
+		
+		<material name="silver" />
+		</visual>
+
+		<collision>
+		<origin xyz="0 0 0" rpy="0 0 0" />
+		<geometry>
+			<mesh 
+				filename="../meshes/dae/axes_2.dae"
+				scale="0.001 0.001 0.001"
+				/>
+		</geometry>
+		</collision>
+  </link>
+
+  <link name="axes_3">
+		<inertial>
+		<origin xyz="-0.02847 -0.02463 0.09430" rpy="0 0 0" />
+		<mass value="20.628123"/>
+		<inertia
+			ixx="0.237192" ixy="-0.008851" ixz="0.063039"
+			iyy="0.287495" iyz="-0.002462"
+			izz="0.37129" />
+		</inertial>
+
+		<visual>
+		<geometry>
+			<mesh 
+				filename="../meshes/dae/axes_3.dae"
+				scale="0.001 0.001 0.001"
+				/>
+		</geometry>
+		
+		<material name="silver" />
+		</visual>
+
+		<collision>
+		<origin xyz="0 0 0" rpy="0 0 0" />
+		<geometry>
+			<mesh
+				filename="../meshes/dae/axes_3.dae"
+				scale="0.001 0.001 0.001"
+				/>
+		</geometry>
+		</collision>
+  </link>
+
+  <link name="axes_4">
+		<inertial>
+		<origin xyz="0.26341 -0.00244 -0.00002" rpy="0 0 0" />
+		<mass value="19.701023"/>
+		<inertia
+			ixx="1.53526" ixy="0.000725" ixz="-0.005893"
+			iyy="0.087447" iyz="0.00579"
+			izz="1.561065" />
+		</inertial>
+
+		<visual>	  
+		<geometry>
+			<mesh 
+				filename="../meshes/dae/axes_4.dae"
+				scale="0.001 0.001 0.001"
+				/>
+		</geometry>
+		
+		<material name="silver" />
+		</visual>
+
+		<collision>
+		<origin xyz="0 0 0" rpy="0 0 0" />
+		<geometry>
+			<mesh
+				filename="../meshes/dae/axes_4.dae"
+				scale="0.001 0.001 0.001"
+				/>
+		</geometry>
+		</collision>
+  </link>
+
+  <link name="axes_5">
+		<inertial>
+		<origin xyz="0.02065 0.00074 -0.00007" rpy="0 0 0" />
+		<mass value="2.020671"/>
+		<inertia
+			ixx="0.003867" ixy="0.000004" ixz="0.000714"
+			iyy="0.003656" iyz="-0.000006"
+			izz="0.003066" />
+		</inertial>
+
+		<visual>	  
+		<geometry>
+			<mesh
+				filename="../meshes/dae/axes_5.dae"
+				scale="0.001 0.001 0.001"
+				/>
+		</geometry>
+		
+		<material name="silver" />
+		</visual>
+
+		<collision>
+		<origin xyz="0 0 0" rpy="0 0 0" />
+		<geometry>
+			<mesh			
+				filename="../meshes/dae/axes_5.dae"
+				scale="0.001 0.001 0.001"
+				/>
+		</geometry>
+		</collision>
+  </link>
+
+  <link name="axes_6">
+		<inertial>
+		<origin xyz="-0.00746 -0.00003 -0.00067" rpy="0 0 0" />
+		<mass value="0.241159"/>
+		<inertia
+			ixx="0.001911" ixy="0.000000" ixz="-0.000007"
+			iyy="0.001905" iyz="0.000001"
+			izz="0.000118" />
+		</inertial>
+
+		<visual>	  
+		<geometry>
+			<mesh 
+				filename="../meshes/dae/axes_6.dae"
+				scale="0.001 0.001 0.001"
+				/>
+		</geometry>
+		
+		<material name="silver"/>
+		</visual>
+
+		<collision>
+		<origin xyz="0 0 0" rpy="0 0 0" />
+		<geometry>
+			<mesh
+				filename="../meshes/dae/axes_6.dae"
+				scale="0.001 0.001 0.001"
+				/>
+		</geometry>
+		</collision>
+  </link>
+  
+  <joint name="base_joint" type="fixed">
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <parent link="world"/>
+      <child link="base_comau"/>        
+  </joint>
+
+  <joint name="q1_joint" type="revolute">
+    <origin xyz="0.0 0.0 0.20140" rpy="0 0 0"/>
+    <parent link="base_comau"/>
+    <child link="axes_1"/>
+    <axis xyz="0.0 0.0 -1.0"/>
+    <limit lower="-${r2d*170}" upper="${r2d*170}" effort="0.0" velocity="${r2d*400}"/>
+    <dynamics damping="0.001" friction="0.001"/>
+  </joint>
+
+  <joint name="q2_joint" type="revolute">
+    <origin xyz="0.150 -0.090 0.2486" rpy="0 0 0"/>
+    <parent link="axes_1"/>
+    <child link="axes_2"/>
+    <axis xyz="0.0 1.0 0.0"/>
+    <limit lower="-${r2d*85}" upper="${r2d*135}" effort="0.0" velocity="${r2d*360}"/>
+    <dynamics damping="0.001" friction="0.001"/>
+  </joint>
+
+  <joint name="q3_joint" type="revolute">
+    <origin xyz="0.0 0.107 0.590" rpy="0 -1.57 0"/>
+    <parent link="axes_2"/>
+    <child link="axes_3"/>
+    <axis xyz="0.0 -1.0 0.0"/>
+    <limit lower="-${r2d*155}" upper="${r2d*90}" effort="0.0" velocity="${r2d*400}"/>
+    <dynamics damping="0.001" friction="0.001"/>
+  </joint>
+
+  <joint name="q4_joint" type="revolute">
+    <origin xyz="0.1 -0.017 0.130" rpy="0 0 0"/>
+    <parent link="axes_3"/>
+    <child link="axes_4"/>
+    <axis xyz="-1.0 0.0 0.0"/>
+    <limit lower="-${r2d*200}" upper="${r2d*200}" effort="0.0" velocity="${r2d*500}"/>
+    <dynamics damping="0.001" friction="0.001"/>
+  </joint>
+
+  <joint name="q5_joint" type="revolute">
+    <origin xyz="0.54707 0.0 0.0" rpy="0 0 0"/>
+    <parent link="axes_4"/>
+    <child link="axes_5"/>
+    <axis xyz="0.0 1.0 0.0"/>
+    <limit lower="-${r2d*125}" upper="${r2d*125}" effort="0.0" velocity="${r2d*500}"/>
+    <dynamics damping="0.001" friction="0.001"/>
+  </joint>
+
+  <joint name="q6_joint" type="revolute">
+    <origin xyz="0.095 0.0 0.0" rpy="0 0 0"/>
+    <parent link="axes_5"/>
+    <child link="axes_6"/>
+    <axis xyz="-1.0 0.0 0.0"/>
+    <limit lower="-${r2d*2700}" upper="${r2d*2700}" effort="0.0" velocity="${r2d*800}"/>
+    <dynamics damping="0.001" friction="0.001"/>
+  </joint>
+
+  <gazebo reference="base_comau">
+    <material>Gazebo/Grey</material>
+  </gazebo>
+  
+  <gazebo reference="axes_1">
+    <material>Gazebo/Grey</material>
+  </gazebo>
+
+  <gazebo reference="axes_2">
+    <material>Gazebo/Grey</material>
+  </gazebo>
+
+  <gazebo reference="axes_3">
+    <material>Gazebo/Grey</material>
+  </gazebo>
+
+  <gazebo reference="axes_4">
+    <material>Gazebo/Grey</material>
+  </gazebo>
+
+  <gazebo reference="axes_5">
+    <material>Gazebo/Grey</material>
+  </gazebo>
+  
+  <gazebo reference="axes_6">
+    <material>Gazebo/Grey</material>
+  </gazebo>
+
+</robot>

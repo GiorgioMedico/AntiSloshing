@@ -1,0 +1,26 @@
+clc
+clear all
+close all
+
+robot = create_SmartSix();
+
+q = [0 0 0 0 0 0]';
+T06 = SmartSix_FK(q)
+
+Jg = SmartSix_Jg(q)
+
+% T06 = eye(4);
+q_sol = SmartSix_IK(robot,T06,4)
+
+for 
+
+q_sol0 = SmartSix_IK(robot,T06,0);
+q_sol1 = SmartSix_IK(robot,T06,1);
+q_sol2 = SmartSix_IK(robot,T06,2);
+q_sol3 = SmartSix_IK(robot,T06,3);
+q_sol4 = SmartSix_IK(robot,T06,4);
+q_sol5 = SmartSix_IK(robot,T06,5);
+q_sol6 = SmartSix_IK(robot,T06,6);
+q_sol7 = SmartSix_IK(robot,T06,7);
+
+rad2deg[q_sol0]

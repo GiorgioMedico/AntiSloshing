@@ -1,0 +1,47 @@
+function [ind1, ind2] = longest_interval(BW,type)
+
+ind = find(BW==type);
+
+if isempty(ind) || length(ind) == 1
+    ind1 = [];
+    ind2 = [];
+else
+
+    df = diff(ind);
+    n = length(df);
+    j = 1;
+    interval = [];
+    interval_length = [];
+    for i = 1:n
+
+        if df(i) == 1
+            interval = [interval ind(i)];
+            str(j).interval = interval;
+        else
+            if i == 1
+                j = 1;
+            elseif df(i-1) == 1
+                interval_length = [interval_length (length(str(j).interval)+1)];
+                j = j+1;
+                interval = [];
+            end
+        end
+
+    end
+
+    if df(end) == 1
+        interval_length = [interval_length (length(str(j).interval))];
+    end
+
+    if isempty(interval_length)
+        ind1 = [];
+        ind2 = [];
+    else
+        [max_int, ind_maxint] = max(interval_length);
+
+        ind1 = str(ind_maxint).interval(1); 
+        ind2 = ind1 + max_int - 1;
+    end
+end
+
+end
