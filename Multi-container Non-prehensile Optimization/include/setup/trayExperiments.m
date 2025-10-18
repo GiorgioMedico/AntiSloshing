@@ -62,9 +62,10 @@ classdef trayExperiments < robotics.manip.internal.InternalAccess
             % Combine the translation and rotation transformations
             traySurface.Tform = traySurface.Tform;
 
-            % Add visual for tray surface
-            colordata.rgba = traySurface.Color;
-            trayBase.BodyInternal.addVisualInternal(traySurface.Type, traySurface.Dim, traySurface.Tform, colordata);
+            % Add visual for tray surface using public API for portability
+            trayColor = traySurface.Color(1:3);
+            addVisual(trayBase, traySurface.Type, traySurface.Dim, traySurface.Tform, ...
+                      "FaceColor", trayColor, "FaceAlpha", 1);
             trayBase.addCollision(traySurface.Type, traySurface.Dim, traySurface.Tform);
 
             % Define and attach the fixed joint for the tray
@@ -80,13 +81,13 @@ classdef trayExperiments < robotics.manip.internal.InternalAccess
             containerBody = rigidBody(containerName);
             containerDimensions = [obj.ContainerRadius, obj.ContainerHeight]; % Radius and height for the cylinder
 
-            % Add visual and collision properties for the container
-            colordata.rgba = [0.2, 1, 1, 0.5]; % Container color
-
             z_shift = -(position(3)-obj.ContainerHeight/2);  % Shift cylinder down to align CoM at container frame
             visualTransform = trvec2tform([0, 0, z_shift]);
 
-            containerBody.BodyInternal.addVisualInternal("Cylinder", containerDimensions, visualTransform, colordata);
+            % Add visual and collision properties for the container
+            containerColor = [0.2, 1, 1]; % Container color
+            addVisual(containerBody, "Cylinder", containerDimensions, visualTransform, ...
+                      "FaceColor", containerColor, "FaceAlpha", 0.5);
             containerBody.addCollision("Cylinder", containerDimensions, trvec2tform([0 0 0]));
 
             % Define and attach the fixed joint for the container

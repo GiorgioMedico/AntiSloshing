@@ -9,16 +9,18 @@
 %% Load libraries
 clear all
 close all
+clear classes
 clc
 
-addpath(genpath('Data\'));
-addpath(genpath('include\'));
-
-win = 1;
+win = 0;
 if win
-    addpath("casadi-3.6.5-windows64-matlab2018b");
+    addpath(genpath('Data\'));
+    addpath(genpath('include\'));
+    addpath(genpath("casadi-3.6.5-windows64-matlab2018b"));
 else
-    addpath("casadi-3.6.5-linux64-matlab2018b");
+    addpath(genpath('Data/'));
+    addpath(genpath('include/'));
+    addpath(genpath("casadi-3.6.5-linux64-matlab2018b"));
 end
 import casadi.*
 
