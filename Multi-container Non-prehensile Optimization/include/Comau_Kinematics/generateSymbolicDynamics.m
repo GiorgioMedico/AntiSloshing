@@ -97,7 +97,7 @@ for i = 1:n_links
     fprintf('  Computing T_0_%d... ', i);
     T_i   = dh_transform(a(i), alpha(i), d(i), q_sym(i));
     % keep expressions relatively small during accumulation
-    T{i+1} = simplify(T{i} * T_i, 'Steps', 10);
+    T{i+1} = simplify(T{i} * T_i, 'Steps', 3);
     fprintf('✓\n');
 end
 
@@ -127,7 +127,7 @@ for i = 1:n_links
     fprintf('    Link %d COM... ', i);
     p_com_local  = [com(i, :)'; 1];
     p_com_global = T{i+1} * p_com_local;
-    p_com{i}     = simplify(p_com_global(1:3), 'Steps', 10);
+    p_com{i}     = p_com_global(1:3);
     fprintf('✓\n');
 end
 
@@ -167,13 +167,11 @@ for i = 1:n_links
                inertia{i}(3), inertia{i}(5), inertia{i}(6)];
     % Rotate to base
     R_i     = R{i+1};
-    I_global = simplify(R_i * I_local * R_i.', 'Steps', 10);
+    I_global = R_i * I_local * R_i.';
     % Sum contributions
     M_sym = M_sym + (Jv{i}.' * (mass(i) * Jv{i})) + (Jw{i}.' * I_global * Jw{i});
     fprintf('✓\n');
 end
-fprintf('  Simplifying M(q)...\n');
-M_sym = simplify(M_sym, 'Steps', 20);
 fprintf('  ✓ M(q) [6x6] complete\n');
 
 %% Potential energy & Gravity vector
@@ -187,8 +185,6 @@ for i = 1:n_links
 end
 fprintf('  Computing gradient ∂PE/∂q to get G(q)...\n');
 G_sym = jacobian(PE, q_sym).';
-fprintf('  Simplifying G(q)...\n');
-G_sym = simplify(G_sym, 'Steps', 20);
 fprintf('  ✓ G(q) [6x1] complete\n');
 
 %% Coriolis / Centrifugal vector via Christoffel (using dM/dq)
@@ -222,8 +218,7 @@ for i = 1:6
     fprintf('✓\n');
 end
 fprintf('  Computing C(q,q̇) = C_mat * q̇...\n');
-fprintf('  Simplifying C(q,q̇)...\n');
-C_sym = simplify(C_mat * qd_sym, 'Steps', 20);
+C_sym = C_mat * qd_sym;
 fprintf('  ✓ C(q, q̇) [6x1] complete\n');
 
 %% Generate MATLAB functions
