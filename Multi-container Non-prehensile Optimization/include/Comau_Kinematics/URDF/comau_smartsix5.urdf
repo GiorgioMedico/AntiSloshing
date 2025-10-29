@@ -1,5 +1,6 @@
 <?xml version="1.0"?>
-  
+<robot name="comau_smartsix5">
+
   <link name="world"></link>
 
   <link name="base_comau">
@@ -286,4 +287,4 @@
     <dynamics damping="0.001" friction="0.001"/>
   </joint>
 
- 
+</robot>
