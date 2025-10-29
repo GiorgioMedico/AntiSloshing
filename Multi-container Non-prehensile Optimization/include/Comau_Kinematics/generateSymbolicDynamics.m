@@ -1,22 +1,20 @@
-%% generateSymbolicDynamics.m
+%% generateSymbolicDynamics_fast.m
 % Generates exact symbolic dynamics functions for SmartSix robot from URDF
 %
-% This script derives closed-form symbolic expressions for:
-%   - M(q): Mass/inertia matrix (6x6)
-%   - C(q, q_dot): Coriolis + centrifugal vector (6x1)
-%   - G(q): Gravity vector (6x1)
+% Faster pipeline:
+%   - M(q) via Jacobians of link COMs (no Lagrangian double-diff)
+%   - G(q) as gradient of potential energy
+%   - C(q, qdot) via Christoffel symbols using precomputed dM/dq
 %
-% The derived functions are compatible with CasADi MX variables and provide
-% exact dynamics based on URDF inertial parameters.
-%
-% Output files (auto-generated):
-%   - SmartSix_M_sym.m: Mass matrix function
-%   - SmartSix_C_sym.m: Coriolis vector function
-%   - SmartSix_G_sym.m: Gravity vector function
+% Output files (auto-generated in this folder):
+%   - SmartSix_M_sym.m
+%   - SmartSix_C_sym.m
+%   - SmartSix_G_sym.m
 %
 % Author: Giorgio Medico
 % Date: October 2025
 
+function generateSymbolicDynamics()
 clear all
 close all
 clear classes
@@ -24,270 +22,263 @@ clc
 
 %% Configuration
 fprintf('╔════════════════════════════════════════════════════════════════╗\n');
-fprintf('║     SmartSix Symbolic Dynamics Generator from URDF            ║\n');
+fprintf('║   SmartSix Symbolic Dynamics (FAST) from URDF & DH            ║\n');
 fprintf('╚════════════════════════════════════════════════════════════════╝\n\n');
 
 % Output directory for generated functions
 output_dir = fileparts(mfilename('fullpath'));
-urdf_path = fullfile(output_dir, 'URDF', 'comau_smartsix5.urdf');
+urdf_path  = fullfile(output_dir, 'URDF', 'comau_smartsix5.urdf');
 
-% Check if Symbolic Math Toolbox is available
+% Check toolboxes
 if ~license('test', 'Symbolic_Toolbox')
     error('Symbolic Math Toolbox is required but not available.');
 end
+if ~license('test', 'Robotics_System_Toolbox')
+    warning('Robotics System Toolbox not detected by license(). If importrobot fails, check installation.');
+end
 
-%% Load Robot Model
+%% Load Robot Model (URDF) for inertial parameters
 fprintf('→ Loading URDF from: %s\n', urdf_path);
 if ~isfile(urdf_path)
     error('URDF file not found: %s', urdf_path);
 end
 
-% Load rigidBodyTree for parameter extraction
 robot_rbt = importrobot(urdf_path);
 robot_rbt.DataFormat = 'row';
 fprintf('  ✓ Loaded %d links, %d joints\n', numel(robot_rbt.Bodies), numel(robot_rbt.Bodies));
 
 %% Create SmartSix Robot Object for DH Parameters
-robot = SmartSix();
+robot = SmartSix(); % must be on MATLAB path
 fprintf('  ✓ SmartSix DH parameters loaded\n');
 
-%% Extract Inertial Parameters from URDF
-% The URDF has links: base_comau, axes_1, axes_2, axes_3, axes_4, axes_5, axes_6
-% We need axes_1 through axes_6 (6 movable links)
-
+%% Extract Inertial Parameters from URDF (axes_1..axes_6)
 link_names = {'axes_1', 'axes_2', 'axes_3', 'axes_4', 'axes_5', 'axes_6'};
-n_links = length(link_names);
+n_links    = length(link_names);
 
-% Storage for inertial parameters
-mass = zeros(n_links, 1);
-com = zeros(n_links, 3);   % Center of mass in link frame
-inertia = cell(n_links, 1); % 3x3 inertia tensor
+mass    = zeros(n_links, 1);
+com     = zeros(n_links, 3);    % Center of mass in link frame
+inertia = cell(n_links, 1);     % 6-vector [Ixx Iyy Izz Iyz Ixz Ixy] in link frame
 
 fprintf('\n→ Extracting inertial parameters:\n');
 for i = 1:n_links
     body = robot_rbt.getBody(link_names{i});
-    mass(i) = body.Mass;
-    com(i, :) = body.CenterOfMass;  % [x, y, z] in link frame
-    inertia{i} = body.Inertia;       % [Ixx Iyy Izz Iyz Ixz Ixy]
-
+    mass(i)      = body.Mass;
+    com(i, :)    = body.CenterOfMass;     % [x y z] in link frame
+    inertia{i}   = body.Inertia(:).';     % [Ixx Ixy Ixz Iyy Iyz Izz]
     fprintf('  Link %d (%s): m=%.3f kg, COM=[%.4f %.4f %.4f]\n', ...
-            i, link_names{i}, mass(i), com(i, 1), com(i, 2), com(i, 3));
+            i, link_names{i}, mass(i), com(i,1), com(i,2), com(i,3));
 end
 
-%% Create Symbolic Variables
+%% Symbolic Variables
 fprintf('\n→ Creating symbolic variables...\n');
 syms q1 q2 q3 q4 q5 q6 real
 syms qd1 qd2 qd3 qd4 qd5 qd6 real
-syms g_sym real  % Gravity
+syms g_sym real  % Gravity acceleration (+Z)
 
-q_sym = [q1; q2; q3; q4; q5; q6];
+q_sym  = [q1; q2; q3; q4; q5; q6];
 qd_sym = [qd1; qd2; qd3; qd4; qd5; qd6];
 
-fprintf('  ✓ Created symbolic joint variables\n');
+assumeAlso(q_sym, 'real');
+assumeAlso(qd_sym, 'real');
+assumeAlso(g_sym, 'real');
+fprintf('  ✓ Symbolic joint variables created\n');
 
-%% Derive Forward Kinematics Symbolically
-fprintf('\n→ Deriving symbolic forward kinematics...\n');
+%% Forward Kinematics via DH (Modified DH as in original script)
+fprintf('\n→ Deriving symbolic forward kinematics (DH)...\n');
 
-% DH parameters from SmartSix
-a = robot.a;
-d = robot.d;
-alpha = robot.alpha;
+a     = robot.a(:);
+d     = robot.d(:);
+alpha = robot.alpha(:);
 
-% Compute transformation matrices for each link
 T = cell(n_links + 1, 1);
-T{1} = eye(4);  % Base frame
+T{1} = sym(eye(4));               % Base frame (symbolic)
 
 for i = 1:n_links
-    % DH transformation matrix
-    T_i = dh_transform(a(i), alpha(i), d(i), q_sym(i));
-    T{i+1} = T{i} * T_i;
+    fprintf('  Computing T_0_%d... ', i);
+    T_i   = dh_transform(a(i), alpha(i), d(i), q_sym(i));
+    % keep expressions relatively small during accumulation
+    T{i+1} = simplify(T{i} * T_i, 'Steps', 10);
+    fprintf('✓\n');
 end
 
-fprintf('  ✓ Computed symbolic transforms T_0_i for i=1..6\n');
-
-%% Compute Symbolic Jacobians for Each Link
-fprintf('\n→ Computing geometric Jacobians...\n');
-
-% Origins of each link frame in base frame
+% Origins and rotations
 p = cell(n_links + 1, 1);
-p{1} = [0; 0; 0];
-for i = 1:n_links
-    p{i+1} = T{i+1}(1:3, 4);
-end
-
-% Rotation matrices
 R = cell(n_links + 1, 1);
-R{1} = eye(3);
-for i = 1:n_links
-    R{i+1} = T{i+1}(1:3, 1:3);
-end
-
-% Joint axes (all revolute, z-axis in local frame)
 z = cell(n_links + 1, 1);
-z{1} = [0; 0; 1];
+
+p{1} = sym([0;0;0]);
+R{1} = sym(eye(3));
+z{1} = sym([0;0;1]);  % base z
+
 for i = 1:n_links
-    z{i+1} = R{i+1}(:, 3);
+    R{i+1} = T{i+1}(1:3,1:3);
+    p{i+1} = T{i+1}(1:3,4);
+    z{i+1} = R{i+1}(:,3);
+end
+fprintf('  ✓ Extracted R_0_i (rotation), p_0_i (position), z_0_i (joint axes) for all links\n');
+
+%% Jacobians of COMs (geometric)
+fprintf('\n→ Building COM Jacobians via symbolic differentiation...\n');
+
+% COM positions in base
+fprintf('  Computing COM positions in base frame...\n');
+p_com = cell(n_links,1);
+for i = 1:n_links
+    fprintf('    Link %d COM... ', i);
+    p_com_local  = [com(i, :)'; 1];
+    p_com_global = T{i+1} * p_com_local;
+    p_com{i}     = simplify(p_com_global(1:3), 'Steps', 10);
+    fprintf('✓\n');
 end
 
-fprintf('  ✓ Extracted joint axes and positions\n');
-
-%% Derive Lagrangian Dynamics: M, C, G
-fprintf('\n→ Deriving Lagrangian dynamics (this may take several minutes)...\n');
-
-% Total kinetic energy
-fprintf('  → Computing kinetic energy...\n');
-KE = sym(0);
-
+% Linear Jacobians Jv{i} (3x6: 3 Cartesian velocities × 6 joints)
+% For serial chain: columns j>i are automatically zero (joint j doesn't affect link i if j>i)
+fprintf('  Computing linear Jacobians Jv (velocity propagation)...\n');
+Jv = cell(n_links,1);
 for i = 1:n_links
-    % Position of COM in base frame
-    p_com_local = [com(i, :)'; 1];  % Homogeneous coordinates
-    p_com_global = T{i+1} * p_com_local;
-    p_com = p_com_global(1:3);
+    fprintf('    Jv_%d... ', i);
+    Jv{i} = jacobian(p_com{i}, q_sym);  % Already 3×6 (dp/dq for position w.r.t. joints)
+    fprintf('✓\n');
+end
 
-    % Velocity of COM (using Jacobian approach)
-    % For each joint j <= i, compute contribution to COM velocity
-    v_com = sym([0; 0; 0]);
-    omega_i = sym([0; 0; 0]);
-
+% Angular Jacobians Jw{i} (3x6): for revolute joints, columns are z_j for j<=i
+fprintf('  Computing angular Jacobians Jw (rotation propagation)...\n');
+Jw = cell(n_links,1);
+for i = 1:n_links
+    fprintf('    Jw_%d... ', i);
+    Jw_i = sym(zeros(3,6));
     for j = 1:i
-        % Joint j contributes to link i
-        v_com = v_com + cross(z{j}, p_com - p{j}) * qd_sym(j);
-        omega_i = omega_i + z{j} * qd_sym(j);
+        Jw_i(:, j) = z{j}; % joint axis j in base
     end
-
-    % Translational kinetic energy
-    KE_trans = (1/2) * mass(i) * (v_com.' * v_com);
-
-    % Rotational kinetic energy
-    % Convert inertia from [Ixx Iyy Izz Iyz Ixz Ixy] to 3x3 matrix
-    I_local = [inertia{i}(1), inertia{i}(6), inertia{i}(5);
-               inertia{i}(6), inertia{i}(2), inertia{i}(4);
-               inertia{i}(5), inertia{i}(4), inertia{i}(3)];
-
-    % Transform inertia tensor to base frame
-    I_global = R{i+1} * I_local * R{i+1}.';
-
-    KE_rot = (1/2) * (omega_i.' * I_global * omega_i);
-
-    KE = KE + KE_trans + KE_rot;
-    fprintf('    Link %d/%d processed\n', i, n_links);
+    Jw{i} = Jw_i;
+    fprintf('✓\n');
 end
+fprintf('  ✓ All Jacobians (Jv and Jw) computed successfully\n');
 
-fprintf('  ✓ Kinetic energy derived\n');
-
-% Total potential energy
-fprintf('  → Computing potential energy...\n');
-PE = sym(0);
-
+%% Mass matrix M(q) via Jacobians
+fprintf('\n→ Computing M(q) via Jacobian composition...\n');
+M_sym = sym(zeros(6,6));
+fprintf('  Adding link contributions to M(q)...\n');
 for i = 1:n_links
-    % Position of COM in base frame
-    p_com_local = [com(i, :)'; 1];
-    p_com_global = T{i+1} * p_com_local;
-
-    % Height (z-coordinate) of COM
-    h_com = p_com_global(3);
-
-    PE = PE + mass(i) * g_sym * h_com;
+    fprintf('    Link %d (m=%.3f kg): translational + rotational inertia... ', i, mass(i));
+    % Inertia tensor in link frame (3x3) from URDF format [Ixx Ixy Ixz Iyy Iyz Izz]
+    I_local = [inertia{i}(1), inertia{i}(2), inertia{i}(3);
+               inertia{i}(2), inertia{i}(4), inertia{i}(5);
+               inertia{i}(3), inertia{i}(5), inertia{i}(6)];
+    % Rotate to base
+    R_i     = R{i+1};
+    I_global = simplify(R_i * I_local * R_i.', 'Steps', 10);
+    % Sum contributions
+    M_sym = M_sym + (Jv{i}.' * (mass(i) * Jv{i})) + (Jw{i}.' * I_global * Jw{i});
+    fprintf('✓\n');
 end
+fprintf('  Simplifying M(q)...\n');
+M_sym = simplify(M_sym, 'Steps', 20);
+fprintf('  ✓ M(q) [6x6] complete\n');
 
-fprintf('  ✓ Potential energy derived\n');
-
-% Lagrangian
-L = KE - PE;
-
-%% Compute Mass Matrix M(q)
-fprintf('\n→ Computing mass matrix M(q)...\n');
-M_sym = sym(zeros(6, 6));
-
-for i = 1:6
-    for j = 1:6
-        % M_ij = ∂²L/∂q̇_i∂q̇_j
-        M_sym(i, j) = diff(diff(L, qd_sym(i)), qd_sym(j));
-    end
-    fprintf('  Row %d/%d completed\n', i, 6);
+%% Potential energy & Gravity vector
+fprintf('\n→ Computing potential energy and G(q)...\n');
+PE = sym(0);
+fprintf('  Computing potential energy contributions...\n');
+for i = 1:n_links
+    fprintf('    Link %d: m*g*h... ', i);
+    PE = PE + mass(i) * g_sym * p_com{i}(3);  % z-height times mass*g
+    fprintf('✓\n');
 end
+fprintf('  Computing gradient ∂PE/∂q to get G(q)...\n');
+G_sym = jacobian(PE, q_sym).';
+fprintf('  Simplifying G(q)...\n');
+G_sym = simplify(G_sym, 'Steps', 20);
+fprintf('  ✓ G(q) [6x1] complete\n');
 
-M_sym = simplify(M_sym);
-fprintf('  ✓ Mass matrix M(q) derived [6x6]\n');
+%% Coriolis / Centrifugal vector via Christoffel (using dM/dq)
+fprintf('\n→ Computing Coriolis/centrifugal vector using dM/dq...\n');
 
-%% Compute Christoffel Symbols and Coriolis Matrix
-fprintf('\n→ Computing Coriolis/centrifugal terms...\n');
-
-% Christoffel symbols of the first kind
-C_mat = sym(zeros(6, 6));  % Coriolis matrix such that C(q, q̇) = C_mat * q̇
-
+% Precompute dM/dq_k, k=1..6
+fprintf('  Computing ∂M/∂q_k for all joints...\n');
+dM_dq = cell(6,1);
 for k = 1:6
-    for j = 1:6
-        c_kj = sym(0);
-        for i = 1:6
-            % c_kj = Σ_i (∂M_kj/∂q_i - 1/2 ∂M_ij/∂q_k) * q̇_i
-            c_kj = c_kj + (diff(M_sym(k, j), q_sym(i)) - ...
-                          (1/2) * diff(M_sym(i, j), q_sym(k))) * qd_sym(i);
-        end
-        C_mat(k, j) = c_kj;
-    end
-    fprintf('  Row %d/%d completed\n', k, 6);
+    fprintf('    ∂M/∂q_%d... ', k);
+    dM_dq{k} = diff(M_sym, q_sym(k));
+    fprintf('✓\n');
 end
 
-C_sym = simplify(C_mat * qd_sym);
-fprintf('  ✓ Coriolis vector C(q, q̇) derived [6x1]\n');
-
-%% Compute Gravity Vector G(q)
-fprintf('\n→ Computing gravity vector G(q)...\n');
-G_sym = sym(zeros(6, 1));
-
+% Build C(q, qdot) = C_mat(q, qdot) * qdot
+% Christoffel symbols: Γ_ij^k = 0.5 * (∂M_kj/∂q_i + ∂M_ki/∂q_j - ∂M_ij/∂q_k)
+% Coriolis matrix element: C_mat(i,j) = Σ_k Γ_ij^k * q̇_k
+% Final Coriolis vector: C = C_mat * q̇
+fprintf('  Computing Christoffel symbols and Coriolis matrix C_mat...\n');
+C_mat = sym(zeros(6,6));
 for i = 1:6
-    % G_i = ∂PE/∂q_i
-    G_sym(i) = diff(PE, q_sym(i));
+    fprintf('    Row %d/6... ', i);
+    for j = 1:6
+        s = sym(0);
+        for k = 1:6
+            % Christoffel symbol construction: (∂M/∂q_k)(i,j) + (∂M/∂q_j)(i,k) - (∂M/∂q_i)(k,j)
+            s = s + 0.5 * ( dM_dq{k}(i,j) + dM_dq{j}(i,k) - dM_dq{i}(k,j) ) * qd_sym(k);
+        end
+        C_mat(i,j) = s;
+    end
+    fprintf('✓\n');
 end
+fprintf('  Computing C(q,q̇) = C_mat * q̇...\n');
+fprintf('  Simplifying C(q,q̇)...\n');
+C_sym = simplify(C_mat * qd_sym, 'Steps', 20);
+fprintf('  ✓ C(q, q̇) [6x1] complete\n');
 
-G_sym = simplify(G_sym);
-fprintf('  ✓ Gravity vector G(q) derived [6x1]\n');
-
-%% Generate MATLAB Functions
+%% Generate MATLAB functions
 fprintf('\n→ Generating optimized MATLAB functions...\n');
 
 % Mass matrix M(q)
-fprintf('  → Generating SmartSix_M_sym.m...\n');
+fprintf('  → Generating SmartSix_M_sym.m [M(q): 6x6 configuration-dependent inertia]... ');
 matlabFunction(M_sym, 'File', fullfile(output_dir, 'SmartSix_M_sym'), ...
                'Vars', {q_sym}, ...
                'Outputs', {'M'}, ...
                'Optimize', true, ...
-               'Comments', 'Exact mass matrix from URDF inertial parameters');
+               'Sparse', false);
+fprintf('✓\n');
 
 % Coriolis vector C(q, q_dot)
-fprintf('  → Generating SmartSix_C_sym.m...\n');
+fprintf('  → Generating SmartSix_C_sym.m [C(q,q̇): 6x1 velocity-dependent forces]... ');
 matlabFunction(C_sym, 'File', fullfile(output_dir, 'SmartSix_C_sym'), ...
                'Vars', {q_sym, qd_sym}, ...
                'Outputs', {'C'}, ...
                'Optimize', true, ...
-               'Comments', 'Exact Coriolis/centrifugal vector from URDF');
+               'Sparse', false);
+fprintf('✓\n');
 
 % Gravity vector G(q)
-fprintf('  → Generating SmartSix_G_sym.m...\n');
+fprintf('  → Generating SmartSix_G_sym.m [G(q): 6x1 gravitational torques]... ');
 matlabFunction(G_sym, 'File', fullfile(output_dir, 'SmartSix_G_sym'), ...
                'Vars', {q_sym, g_sym}, ...
                'Outputs', {'G'}, ...
                'Optimize', true, ...
-               'Comments', 'Exact gravity vector from URDF');
+               'Sparse', false);
+fprintf('✓\n');
 
 fprintf('\n╔════════════════════════════════════════════════════════════════╗\n');
-fprintf('║                  Generation Complete!                         ║\n');
+fprintf('║                     Generation Complete!                      ║\n');
 fprintf('╚════════════════════════════════════════════════════════════════╝\n\n');
 
-fprintf('Generated files:\n');
-fprintf('  ✓ %s\n', fullfile(output_dir, 'SmartSix_M_sym.m'));
-fprintf('  ✓ %s\n', fullfile(output_dir, 'SmartSix_C_sym.m'));
-fprintf('  ✓ %s\n', fullfile(output_dir, 'SmartSix_G_sym.m'));
+fprintf('Generated files (saved in: %s):\n', output_dir);
+fprintf('  ✓ SmartSix_M_sym.m  - Mass/inertia matrix M(q) [6x6]\n');
+fprintf('  ✓ SmartSix_C_sym.m  - Coriolis/centrifugal vector C(q,q̇) [6x1]\n');
+fprintf('  ✓ SmartSix_G_sym.m  - Gravity torque vector G(q,g) [6x1]\n');
+fprintf('\nUsage:\n');
+fprintf('  M = SmartSix_M_sym(q);          %% q: [6x1] joint angles\n');
+fprintf('  C = SmartSix_C_sym(q, qd);      %% qd: [6x1] joint velocities\n');
+fprintf('  G = SmartSix_G_sym(q, g);       %% g: scalar gravity (9.81 m/s²)\n');
 fprintf('\nThese functions are compatible with CasADi MX symbolic variables.\n');
 
-%% Helper Function: DH Transformation
-function T = dh_transform(a, alpha, d, theta)
-    % DH transformation matrix
-    % Modified DH convention: T = Rot_z(theta) * Trans_z(d) * Trans_x(a) * Rot_x(alpha)
+end % function main
 
-    T = [cos(theta), -sin(theta)*cos(alpha),  sin(theta)*sin(alpha), a*cos(theta);
-         sin(theta),  cos(theta)*cos(alpha), -cos(theta)*sin(alpha), a*sin(theta);
-         0,           sin(alpha),              cos(alpha),            d;
-         0,           0,                        0,                     1];
+%% Helper: Modified DH Transformation
+function T = dh_transform(a, alpha, d, theta)
+    % Modified DH: Rz(theta)*Tz(d)*Tx(a)*Rx(alpha)
+    ct = cos(theta);  st = sin(theta);
+    ca = cos(alpha);  sa = sin(alpha);
+    T = [ ct, -st*ca,  st*sa, a*ct;
+          st,  ct*ca, -ct*sa, a*st;
+           0,     sa,     ca,    d;
+           0,      0,      0,    1];
 end
