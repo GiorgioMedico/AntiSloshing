@@ -4,12 +4,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This repository implements time-optimal trajectory planning for multi-container non-prehensile transport using a robotic manipulator. The code solves two distinct scenarios:
+This repository implements trajectory planning for multi-container non-prehensile transport using a robotic manipulator. The code solves three distinct scenarios:
 
-1. **Anti-sloshing optimization** (`NonPrehensile_Assigned_Path_Optimization.m`): Liquid-filled containers with mass-spring-damper sloshing dynamics
-2. **Rigid body optimization** (`NonPrehensile_Assigned_Path_Multi_Rigid_Body_Optimization.m`): Solid containers with additional tilt degrees of freedom
+1. **Anti-sloshing optimization** (`NonPrehensile_Assigned_Path_Optimization.m`): Time-optimal, path-parameterized (s), liquid-filled containers
+2. **Rigid body optimization** (`NonPrehensile_Assigned_Path_Multi_Rigid_Body_Optimization.m`): Time-optimal, path-parameterized (s), solid containers with tilt
+3. **Direct Torque OCP D-T** (`Prehensile_New_OCP.m`): Direct torque control, time-based, sloshing suppression with joint trajectory optimization
 
-Both formulate the problem as a non-linear optimal control problem (OCP) using CasADi's Opti stack, discretized via multiple shooting and solved with IPOPT.
+All formulate problems as non-linear optimal control problems (OCP) using CasADi's Opti stack, discretized via multiple shooting and solved with IPOPT.
 
 ## Running the Code
 
@@ -28,13 +29,14 @@ The `include/`, `Data/`, and appropriate CasADi directories are added to the MAT
 
 ### Execution
 
-Run either main script:
+Run any of the main scripts:
 ```matlab
-NonPrehensile_Assigned_Path_Optimization.m              % Anti-sloshing
-NonPrehensile_Assigned_Path_Multi_Rigid_Body_Optimization.m  % Rigid body with tilt
+NonPrehensile_Assigned_Path_Optimization.m                    % Anti-sloshing (path-param)
+NonPrehensile_Assigned_Path_Multi_Rigid_Body_Optimization.m   % Rigid body with tilt (path-param)
+Prehensile_New_OCP.m                          % Direct torque OCP D-T (time-based)
 ```
 
-Both scripts follow an **interactive GUI workflow** with 5 sequential dialog windows for configuration:
+**Path-Parameterized Scripts** follow an **interactive GUI workflow** with 5 sequential dialog windows for configuration:
 1. Save options (figures, CSV trajectories, MAT files) and animation preferences
 2. Container and liquid properties (geometry, mass, sloshing limits)
 3. Container placement on tray (number, positions, tray dimensions, friction)
@@ -42,6 +44,13 @@ Both scripts follow an **interactive GUI workflow** with 5 sequential dialog win
 5. Prescribed geometric path definition and orientation
 
 After configuration, the optimization runs automatically and generates plots and data files.
+
+**Direct Torque OCP D-T Script** (`Prehensile_New_OCP.m`) supports two execution modes:
+- **Quick-test mode**: Uses default parameters (4 containers, 5s horizon, 100Hz discretization) without GUI prompts for rapid prototyping
+- **Interactive GUI mode**: Same 4 configuration dialogs as path-parameterized scripts (1-4 above), plus:
+  5. **Reference pose trajectory** (position + yaw angle vs time) instead of geometric path definition
+
+The reference pose can be loaded from file or defined via piecewise-constant, linear interpolation, or spline representation. The optimization then finds joint torques to track this reference while suppressing sloshing.
 
 ## Core Architecture
 
@@ -146,9 +155,9 @@ This improves convergence by bringing all variables to similar orders of magnitu
 - **`include/useful_functions/`**: Utility functions (rotation matrices, skew-symmetric, etc.)
 - **`include/debug/`**: Plotting and diagnostic scripts executed via `run()` statements
 
-### Main Script Structure Pattern
+### Main Script Structure Pattern (Path-Parameterized Scripts)
 
-Both optimization scripts follow this workflow:
+Path-parameterized optimization scripts follow this workflow:
 
 1. Load libraries and set platform-specific paths
 2. Interactive GUI configuration (5 dialog windows)
@@ -161,6 +170,49 @@ Both optimization scripts follow this workflow:
 9. Solve with IPOPT
 10. Post-processing: sloshing simulation, inverse kinematics verification, plotting
 11. Optional CSV export at 500 Hz for robot execution
+
+### OCP D-T Script Structure (`Prehensile_New_OCP.m`)
+
+The Direct Torque OCP D-T script follows a different architecture optimized for trajectory tracking with sloshing suppression:
+
+**Quick-test mode** (no user interaction):
+1. Load libraries and set platform-specific paths
+2. Use default configuration (4 containers, 5.0s horizon, 0.1s timestep)
+3. Skip all GUI dialogs
+4. Proceed directly to step 5 below
+
+**Interactive GUI mode**:
+1. Load libraries and set platform-specific paths
+2. Configuration via 4 GUI dialogs (save options, container properties, placement, tool offset)
+3. Display available reference trajectories and load/define reference pose trajectory
+4. Robot model instantiation and tool offset setup
+5. Proceed to dynamics and optimization setup below
+
+**Dynamics and Optimization Setup** (common for both modes):
+5. Create CasADi symbolic dynamics via `createDynamicsCasadiFcn.m`:
+   - Full robot inertia, Coriolis, gravity matrices M(q), C(q,q̇), G(q)
+   - End-effector kinematics and accelerations
+   - Container sloshing dynamics (MSD model) for each container
+   - RK4 discrete-time integration `x_{k+1} = RK4(x_k, u_k, dt)`
+6. Setup Opti problem with scaled decision variables (q, q_dot, u):
+   - Decision variables: `X = [q(0), q_dot(0), slosh(0), ..., u(0), u(1), ..., u(N-1)]`
+   - Discretized state propagation constraints: `X_{k+1} = RK4(X_k, u_k, dt)`
+7. Define multi-objective cost function:
+   - Stage cost: Position tracking + Yaw tracking + Sloshing suppression + Control effort
+   - Terminal cost: Position tracking + Yaw tracking + Sloshing suppression + Final velocity
+8. Add constraints:
+   - Joint position limits: `q_min ≤ q_k ≤ q_max`
+   - Joint torque limits: `τ_min ≤ u_k ≤ τ_max`
+   - Sloshing height limits: `||slosh_i,k|| ≤ η_max` (per container)
+9. Solve with IPOPT
+10. Post-processing: Verify constraints, plot results (joint trajectories, end-effector motion, sloshing heights, cost evolution)
+
+**Key Differences from Path-Parameterized Approach**:
+- **Direct torque control**: Optimizes joint torques directly (not path jerk)
+- **Time-based**: State evolution explicit in time t, not path progress s
+- **Full dynamics**: Includes robot inertia, Coriolis, gravity terms
+- **Pose tracking**: References are end-effector position + yaw (not geometric path)
+- **Simplified constraints**: No waiter problem (non-prehensile contact constraints)
 
 ### CasADi Debugging
 
@@ -222,3 +274,151 @@ The trajectory formulation scripts create CasADi Functions that map `s` and its 
 - Acceleration: `get_a_07_0(s, s_dot, s_ddot)`
 
 These are then combined with rotation matrices to get full 6-DOF motion.
+
+## OCP D-T: Direct Torque Control Formulation
+
+### Overview
+
+The **Direct Torque OCP D-T** (`Prehensile_New_OCP.m`) is a new formulation that differs fundamentally from the path-parameterized approaches:
+
+| Aspect | Path-Param (s) | Direct Torque (D-T) |
+|--------|---|---|
+| **Control** | Path jerk (s⃛) | Joint torques (τ) |
+| **Parameterization** | Path parameter s ∈ [0,1] | Time t ∈ [0, T] |
+| **Objective** | Time-optimal | Trajectory tracking + sloshing suppression |
+| **State** | [s, ṡ, s̈, sloshing] | [q, q̇, sloshing] |
+| **Constraints** | Waiter (contact) | Joint limits, torque limits, sloshing limits |
+
+### Mathematical Formulation
+
+**Problem statement** (from OCP.pdf):
+```
+minimize: sum_t L(x_t, u_t) + L_f(x_T)
+subject to: x_{t+1} = f(x_t, u_t)
+            constraints: joint limits, torque limits, sloshing limits
+```
+
+**State vector** (R^(12 + 4·num_containers)):
+```
+x_t = [q_t^T, q̇_t^T, slosh_1,t, slosh_2,t, ..., slosh_M,t]^T
+```
+where:
+- `q, q̇` ∈ R^6: Joint positions and velocities
+- `slosh_i,t ∈ R^4` for i = 1,...,M: Sloshing state for container i
+  - `slosh_i = [x_i, y_i, ẋ_i, ẏ_i]^T` (horizontal position and velocity of sloshing mass)
+  - M = `num_containers` (default: 4 in quick_test mode, configurable via GUI)
+
+**Control vector** (R^6):
+```
+u_t = τ_t  (joint torques)
+```
+
+**Cost function**:
+
+Stage cost at each time step t:
+```
+L(x_t, u_t) = ½||p_EE(q_t) - p_ref,t||²_Qp           % End-effector position tracking
+            + ½||yaw(q_t) - yaw_ref,t||²_Qrot        % Yaw angle tracking
+            + ½ Σᵢ ||η_i(x_t)||²_Qη                  % Sloshing suppression (all containers)
+            + ½||u_t||²_R                             % Control effort regularization
+```
+
+Terminal cost at final time T:
+```
+L_f(x_T) = ½||p_EE(q_T) - p_ref,T||²_Pp             % Final position
+         + ½||yaw(q_T) - yaw_ref,T||²_Prot           % Final yaw
+         + ½ Σᵢ ||η_i(x_T)||²_Pη                     % Final sloshing (all containers)
+         + ½||q̇_T||²_Pq̇                             % Final joint velocities
+```
+
+where `η_i(x) = (ξ²₁₁ h m₁ / (m_f R)) * sqrt(x² + y²)` is the sloshing height for container i.
+
+### Continuous Dynamics
+
+The continuous-time dynamics ẋ = f_cont(x, u) are computed in 5 steps:
+
+1. **Robot Dynamics**: Compute joint accelerations from inverse dynamics
+   ```
+   q̈ = M(q)⁻¹ [τ - C(q, q̇)q̇ - G(q)]
+   ```
+
+2. **End-Effector Kinematics**: Compute EE velocities and accelerations
+   ```
+   [ṙ^T, ω^T]^T = J(q) q̇
+   [r̈^T, ω̇^T]^T = J̇(q, q̇)q̇ + J(q)q̈
+   ```
+
+3. **Container Accelerations**: Compute accelerations of each container center
+   ```
+   r̈_i = r̈ + ω̇ × d_i + ω × (ω × d_i)
+   ```
+
+4. **Sloshing Dynamics**: Solve coupled nonlinear ODE for sloshing accelerations
+   ```
+   [1 + P_n²x² , P_n²xy  ] [ẍ]   [a_i]
+   [P_n²xy    , 1 + P_n²y²] [ÿ] = [b_i]
+   ```
+
+5. **State Derivative**: Construct ẋ = [q̇^T, q̈^T, ẋ_IC, ẏ_IC, ẍ_IC, ÿ_IC, ẋ_EC, ẏ_EC, ẍ_EC, ÿ_EC]^T
+
+The dynamics are discretized using **RK4 integration** with N time steps:
+```
+x_{t+1} = RK4(ẋ, x_t, u_t, Δt)
+```
+
+### Key Differences from Path-Parameterized Approach
+
+1. **Direct Robot Control**: Optimizes joint torques directly instead of path parameter jerk
+2. **Full Robot Dynamics**: Includes inertia, Coriolis, and gravity terms (M, C, G matrices)
+3. **Time-Variable Formulation**: State explicitly depends on time, not path progress
+4. **Sloshing-Focused Objective**: Minimizes sloshing and control effort, not trajectory time
+5. **Simplified Constraints**: No waiter problem constraints; focus on joint/torque limits and sloshing
+
+### Implementation Notes
+
+**Files for OCP D-T** (Updated October 29, 2025):
+- `Prehensile_New_OCP.m` - Main optimization script with pose tracking and sloshing suppression ✅
+- `include/createDynamicsCasadiFcn.m` - CasADi symbolic dynamics & RK4 integration ✅
+- `include/setup/getReferencePoseTrajectory.m` - GUI for reference pose trajectory (position + yaw) setup ✅
+
+**Optimization parameters** (in main script):
+- `N` - Number of control intervals, computed as `N = round(T_fixed / dt)` (default: 50 with T=5.0s, dt=0.1s)
+
+**Stage cost weights**:
+- `Qp` - Position tracking weight (100 by default, 3×3 matrix)
+- `Qrot` - Yaw angle tracking weight (100 by default, scalar)
+- `Qeta` - Sloshing suppression weight per container (100 by default)
+- `R` - Joint torque effort weight (0.01 by default, 6×6 matrix)
+
+**Terminal cost weights**:
+- `Pp` - Final position tracking weight (1000 by default, 3×3 matrix)
+- `Prot` - Final yaw tracking weight (1000 by default, scalar)
+- `Peta` - Final sloshing weight per container (1000 by default)
+- `Pqdot` - Final joint velocity weight (100 by default, 6×6 matrix)
+
+**✅ Dynamics Implementation - COMPLETED**:
+
+The OCP D-T implementation now includes **full symbolic dynamics integration**:
+
+1. **Robot Dynamics Matrices**: M(q), C(q, q̇), G(q) are computed using:
+   - Configuration-dependent inertia matrix based on SmartSix DH parameters
+   - Velocity-dependent Coriolis and centrifugal terms
+   - Gravity vector accounting for link masses and positions
+   - Supports both analytical approximation and rigidBodyTree (when available)
+
+2. **CasADi Symbolic Formulation**: All dynamics are fully symbolic via `createDynamicsCasadiFcn.m`:
+   - Returns `dynamics_fcn`: continuous dynamics x_dot = f(x, u)
+   - Returns `rk4_fcn`: discrete RK4 integration x_{k+1} = RK4(x_k, u_k, dt)
+   - Automatic differentiation enabled for IPOPT gradients
+   - Used in optimization: `opti.subject_to(X(:, k+1) == rk4_fcn(x_k, u_k, dt))`
+
+3. **Validation Utilities**: `computeRobotDynamics.m` provides:
+   - Ability to use MATLAB rigidBodyTree for accurate dynamics (when available)
+   - Improved analytical approximation as fallback
+   - Consistent interface for both modes
+
+**Remaining Enhancements** (optional):
+- Use analytical Jacobian derivative (currently numerical finite differences)
+- Add waiter problem constraints if contact preservation is needed
+- Implement EE pose tracking constraints for trajectory following
+- Fine-tune optimization weights and scaling
